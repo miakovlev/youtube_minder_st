@@ -1,0 +1,14 @@
+services:
+  youtube-minder:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env
+      - ./cookies.txt:/app/cookies.txt
+      - yt-dlp-cache:/root/.cache/yt-dlp
+    restart: unless-stopped
+
+volumes:
+  yt-dlp-cache:

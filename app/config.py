@@ -1,0 +1,3 @@
+from youtube_minder.config import BASE_DIR, DATA_DIR, DOWNLOADS_DIR, TRANSCRIPTIONS_DIR
+
+__all__ = ["BASE_DIR", "DATA_DIR", "DOWNLOADS_DIR", "TRANSCRIPTIONS_DIR"]
