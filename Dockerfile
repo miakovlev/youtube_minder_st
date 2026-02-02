@@ -19,7 +19,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv
 
 # Copy dependency files first to leverage cache
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-cache
 
 # Use the uv-managed virtual environment
