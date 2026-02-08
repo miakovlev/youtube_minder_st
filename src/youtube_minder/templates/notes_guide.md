@@ -1,0 +1,6 @@
+- Start with a short title in <h1>.
+- Use <h2> sections for main themes (overview, key ideas, steps, examples, takeaways).
+- Use <ul> or <ol> lists for structured points.
+- Use short paragraphs for explanations.
+- Use <blockquote> for definitions or key quotes.
+- Avoid tables, images, links, scripts, or inline styles.
