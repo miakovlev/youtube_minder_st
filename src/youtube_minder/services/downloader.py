@@ -13,6 +13,38 @@ except Exception:
 
 _VTT_TIMESTAMP_RE = re.compile(r"^\d{2}:\d{2}:\d{2}\.\d{3}\s+-->\s+\d{2}:\d{2}:\d{2}\.\d{3}")
 _VTT_METADATA_PREFIXES = ("Kind:", "Language:")
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+_FALLBACK_PLAYER_CLIENTS_403 = [["android"], ["android", "web"]]
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_ESCAPE_RE.sub("", text)
+
+
+def _format_ytdlp_error_message(exc: Exception) -> str:
+    message = _strip_ansi(str(exc)).replace("ERROR:", "").strip()
+    if "HTTP Error 403" in message:
+        return (
+            f"{message}. YouTube returned 403. Try setting "
+            "YTDLP_PLAYER_CLIENT=android and/or refresh cookies."
+        )
+    return message
+
+
+def _has_explicit_player_client(ydl_opts: dict) -> bool:
+    extractor_args = ydl_opts.get("extractor_args") or {}
+    youtube_args = extractor_args.get("youtube") or {}
+    return bool(youtube_args.get("player_client"))
+
+
+def _with_player_clients(ydl_opts: dict, player_clients: list[str]) -> dict:
+    ydl_opts_retry = dict(ydl_opts)
+    extractor_args = dict(ydl_opts_retry.get("extractor_args") or {})
+    youtube_args = dict(extractor_args.get("youtube") or {})
+    youtube_args["player_client"] = player_clients
+    extractor_args["youtube"] = youtube_args
+    ydl_opts_retry["extractor_args"] = extractor_args
+    return ydl_opts_retry
 
 
 def _clean_vtt_text(vtt_content: str) -> str:
@@ -147,7 +179,19 @@ def _extract_info_with_fallback(youtube_url: str, ydl_opts: dict, download: bool
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             return ydl.extract_info(youtube_url, download=download)
     except Exception as e:
-        if "Requested format is not available" in str(e) and "extractor_args" in ydl_opts:
+        message = _strip_ansi(str(e))
+        if "HTTP Error 403" in message and not _has_explicit_player_client(ydl_opts):
+            last_exc = None
+            for player_clients in _FALLBACK_PLAYER_CLIENTS_403:
+                try:
+                    ydl_opts_retry = _with_player_clients(ydl_opts, player_clients)
+                    with yt_dlp.YoutubeDL(ydl_opts_retry) as ydl:
+                        return ydl.extract_info(youtube_url, download=download)
+                except Exception as retry_exc:
+                    last_exc = retry_exc
+            if last_exc is not None:
+                raise last_exc
+        if "Requested format is not available" in message and "extractor_args" in ydl_opts:
             ydl_opts_fallback = dict(ydl_opts)
             ydl_opts_fallback.pop("extractor_args", None)
             with yt_dlp.YoutubeDL(ydl_opts_fallback) as ydl:
@@ -186,7 +230,10 @@ def download_audio(youtube_url: str, output_path: str) -> None:
     _apply_ytdlp_auth_and_extractor_opts(ydl_opts)
 
     # yt-dlp downloads and converts to mp3 (ffmpeg must be in PATH)
-    info = _extract_info_with_fallback(youtube_url, ydl_opts, download=True)
+    try:
+        info = _extract_info_with_fallback(youtube_url, ydl_opts, download=True)
+    except Exception as exc:
+        raise RuntimeError(_format_ytdlp_error_message(exc)) from exc
     return info.get("title", "Unknown Title")
 
 
@@ -205,12 +252,16 @@ def get_video_info(youtube_url: str) -> dict:
     try:
         info = _extract_info_with_fallback(youtube_url, ydl_opts, download=False)
     except Exception as e:
-        if "Requested format is not available" in str(e):
+        message = _strip_ansi(str(e))
+        if "Requested format is not available" in message:
             ydl_opts_raw = dict(ydl_opts)
-            with yt_dlp.YoutubeDL(ydl_opts_raw) as ydl:
-                info = ydl.extract_info(youtube_url, download=False, process=False)
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts_raw) as ydl:
+                    info = ydl.extract_info(youtube_url, download=False, process=False)
+            except Exception as exc:
+                raise RuntimeError(_format_ytdlp_error_message(exc)) from exc
         else:
-            raise
+            raise RuntimeError(_format_ytdlp_error_message(e)) from e
     return {
         "title": info.get("title", "Unknown Title"),
         "duration": info.get("duration", 0),
@@ -260,10 +311,11 @@ def download_subtitles(youtube_url: str, output_dir: str, langs: list[str] | Non
                         return _clean_vtt_text(f.read())
             return None
         except Exception as e:
-            if "HTTP Error 429" in str(e) and attempt < max_attempts:
+            message = _strip_ansi(str(e))
+            if "HTTP Error 429" in message and attempt < max_attempts:
                 sleep_s = base_sleep * (2 ** (attempt - 1))
                 time.sleep(sleep_s)
                 continue
-            raise
+            raise RuntimeError(_format_ytdlp_error_message(e)) from e
 
     return None

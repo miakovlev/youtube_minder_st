@@ -72,21 +72,32 @@ def main() -> None:
     language = st.radio("Summary language", ["English", "Russian"], horizontal=True)
     language_code = "en" if language == "English" else "ru"
 
-    method = "subs"
-    if video_info and video_info.get("duration", 0) > 1400:
-        st.info("Video is longer than 1400 seconds. Subtitles will be used if available.")
-        method = "subs"
+    method = None
+    if video_info:
+        if video_info.get("duration", 0) > 1400:
+            st.info("Video is longer than 1400 seconds. Only subtitles are available.")
+            st.radio(
+                "Processing method",
+                ["Subtitles (faster)"],
+                horizontal=True,
+            )
+            method = "subs"
+        else:
+            method_label = st.radio(
+                "Processing method",
+                ["Subtitles (faster)", "Audio (transcribe)"],
+                horizontal=True,
+            )
+            method = "subs" if method_label.startswith("Subtitles") else "audio"
     else:
-        method_label = st.radio(
-            "Processing method",
-            ["Subtitles (faster)", "Audio (transcribe)"],
-            horizontal=True,
-        )
-        method = "subs" if method_label.startswith("Subtitles") else "audio"
+        st.info("Fetch video info first to check duration and select a processing method.")
 
-    if st.button("Process video", type="primary", use_container_width=True):
+    if st.button("Process video", type="primary", use_container_width=True, disabled=not video_info):
         if not _is_valid_url(url):
             st.error("Please enter a valid YouTube link.")
+            st.stop()
+        if not video_info or not method:
+            st.error("Please click 'Fetch video info' first.")
             st.stop()
 
         if "log_messages" not in st.session_state:
